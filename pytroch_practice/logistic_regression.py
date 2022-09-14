@@ -1,74 +1,119 @@
-from pickletools import optimize
-import numpy as np
-import matplotlib.pyplot as plt
 from sklearn import datasets
-from sklearn.preprocessing import StandardScaler
+import torch 
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
-import torch
-import torch.nn as nn
 
-#prepare data
+from sklearn.preprocessing import StandardScaler
 
-breast_cancer = datasets.load_breast_cancer()
 
-x,y, = breast_cancer.data,breast_cancer.target
+iris = datasets.load_iris()
 
-# print(x,y)
-n_sample,n_feature = x.shape
-x_train,x_test,y_train,y_test = train_test_split(x,y,test_size=0.2,random_state=1234)
+feature = pd.DataFrame(iris.data,columns=iris.feature_names)
+# print(feature)
+target = pd.DataFrame(iris.target, columns=['target'])
+# print(target)
+iris_data = pd.concat([feature, target], axis=1)
+# print(iris_data)
+iris_data = iris_data[['sepal length (cm)', 'sepal width (cm)', 'target']]
+iris_data = iris_data[iris_data.target <= 1]
 
-# print(n_sample,n_feature)
+print(iris_data)
+train_feature, test_feature, train_target, test_target = train_test_split(
+    iris_data[['sepal length (cm)', 'sepal width (cm)']], iris_data[['target']], test_size=0.3, random_state=4
+)
+
 sc = StandardScaler()
-x_train = sc.fit_transform(x_train)
-x_test = sc.transform(x_test)
-# print(x_train,x_test)
-x_train = torch.from_numpy(x_train.astype(np.float32))
-x_test = torch.from_numpy(x_test.astype(np.float32))
-y_train = torch.from_numpy(y_train.astype(np.float32))
-y_test = torch.from_numpy(y_test.astype(np.float32))
-y_train=y_train.view(y_train.shape[0],1)
-y_test=y_test.view(y_test.shape[0],1)
-# 1.set model
-#f = wx +b 
-class LogisticRegression(nn.Module):
-    
-    def __init__(self,n_input_features):
-        super(LogisticRegression,self).__init__()
-        self.linear = nn.Linear(n_input_features,1)
-    def forward(self,x):
-        
-        y_pred = torch.sigmoid(self.linear(x)) # y = 1/1+e^-x
+train_feature = sc.fit_transform(train_feature)
+test_feature = sc.fit_transform(test_feature)
+train_target = np.array(train_target)
+test_target = np.array(test_target)
+print(train_feature, "\n",test_feature)
+
+
+
+class LogisticRegression():
+    def __init__(self):
+        super(LogisticRegression, self).__init__()
+
+    def linear(self, x, w, b):
+
+        return np.dot(x, w) + b
+
+    def sigmoid(self, x):
+
+        return 1/(1 + np.exp(-x))
+
+    def forward(self, x, w, b):
+        y_pred = self.sigmoid(self.linear(x, w, b)).reshape(-1, 1)
+
         return y_pred
+
+
+
+model = LogisticRegression()
+learning_rate = 0.01
+
+
+
+
+
+class BinaryCrossEntropy():
+    def __init__(self):
+        super(BinaryCrossEntropy, self).__init__()
     
-model = LogisticRegression(n_feature)
+    def cross_entropy(self, y_pred, target):
+        x = target*np.log(y_pred) + (1-target)*np.log(1-y_pred)
 
-# 2.loss and optimizer
+        return -(np.mean(x))
 
-criterion = nn.BCELoss()
-optimizer = torch.optim.SGD(model.parameters(),lr = 0.01)
+    def forward(self, y_pred, target):
 
-# 3.training loop
+        return self.cross_entropy(y_pred, target)
 
-n_iters = 100
+# GradientDescent
+class GradientDescent():
+    def __init__(self, lr=0.1):
+        super(GradientDescent, self).__init__()
+        self.lr = lr
 
-for i in range(n_iters):
-    #forward pass and loss
-    y_pred =model(x_train)
-    loss = criterion(y_pred,y_train)
-    #backward
-    loss.backward()
-    #update
-    optimizer.step()
-    
-    optimizer.zero_grad()
-    if (i+1)%10 ==0:
+    def forward(self, w, b, y_pred, target, data):
+        w = w - self.lr * np.mean(data * (y_pred - target), axis=0)
+        b = b - self.lr * np.mean((y_pred - target), axis=0)
+
+        return w, b
+
+
+
+
+
+
+
+criterion = BinaryCrossEntropy()
+optimizer = GradientDescent(lr=learning_rate)
+
+
+
+# 3) training loop
+w = np.array([0, 0])
+b = np.array([0])
+num_epochs = 100
+for epoch in range(num_epochs):
+    for i, data in enumerate(train_feature):
+        # forward pass and loss
+        y_pred = model.forward(data, w, b)
+        loss = criterion.forward(y_pred, train_target[i])
+
+        # update
+        w, b = optimizer.forward(w, b, y_pred, train_target[i], data)
+
+    if (epoch+1) % 10 == 0:
+        print(f'epoch {epoch + 1}: loss = {loss}')
         
-
-        print(f"epoch {i+1}: loss ={loss.item():.4f}")
         
-with torch.no_grad():
-    
-    y_pred = model(x_test)
-    y_pred_cls = y_pred.round()
-    acc = y_pred_cls.eq(y_test).sum()/y_test.shape[0]
-    print(f"accuracy = {acc:4f}")
+        
+# checking testing accuracy
+y_pred = model.forward(test_feature, w, b)
+y_pred_cls = y_pred.round()
+acc = np.equal(y_pred_cls, test_target).sum() / float(test_target.shape[0])
+print(f'accuracy = {acc: .4f}')
